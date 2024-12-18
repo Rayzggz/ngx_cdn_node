@@ -51,20 +51,29 @@ static ngx_http_output_header_filter_pt ngx_http_next_header_filter;
 
 static ngx_int_t ngx_http_cdn_node_header_filter(ngx_http_request_t *r)
 {
-    ngx_http_cdn_node_header_conf_t *conf;
+    ngx_http_cdn_node_header_array_conf_t *conf;
+    ngx_http_cdn_node_header_entry_conf_t *header;
     ngx_table_elt_t *h;
+    ngx_uint_t i;
 
     conf = ngx_http_get_module_loc_conf(r, ngx_http_cdn_node_module);
 
-    if (conf->header_name.len > 0 && conf->header_value.len > 0) {
-        h = ngx_list_push(&r->headers_out.headers);
-        if (h == NULL) {
-            return NGX_ERROR;
-        }
+    if (conf->headers == NULL || conf->headers->nelts == 0) {
+        return ngx_http_next_header_filter(r);
+    }
 
-        h->hash = 1;
-        h->key = conf->header_name;
-        h->value = conf->header_value;
+    header = conf->headers->elts;
+    for (i = 0; i < conf->headers->nelts; i++) {
+        if (header[i].header_name.len > 0 && header[i].header_value.len > 0) {
+            h = ngx_list_push(&r->headers_out.headers);
+            if (h == NULL) {
+                return NGX_ERROR;
+            }
+
+            h->hash = 1;
+            h->key = header[i].header_name;
+            h->value = header[i].header_value;
+        }
     }
 
     return ngx_http_next_header_filter(r);
@@ -73,18 +82,16 @@ static ngx_int_t ngx_http_cdn_node_header_filter(ngx_http_request_t *r)
 // 创建配置
 static void *ngx_http_cdn_node_create_loc_conf(ngx_conf_t *cf)
 {
-    ngx_http_cdn_node_header_conf_t *conf;
+    ngx_http_cdn_node_header_array_conf_t *conf;
 
-    conf = ngx_pcalloc(cf->pool, sizeof(ngx_http_cdn_node_header_conf_t));
+    conf = ngx_pcalloc(cf->pool, sizeof(ngx_http_cdn_node_header_array_conf_t));
     if (conf == NULL) {
         return NULL;
     }
-
-    // 初始化字符串为空
-    conf->header_name.len = 0;
-    conf->header_name.data = NULL;
-    conf->header_value.len = 0;
-    conf->header_value.data = NULL;
+    conf->headers = ngx_array_create(cf->pool, 4, sizeof(ngx_http_cdn_node_header_entry_conf_t));
+    if (conf->headers == NULL) {
+        return NULL;
+    }
 
     return conf;
 }
@@ -92,11 +99,24 @@ static void *ngx_http_cdn_node_create_loc_conf(ngx_conf_t *cf)
 // 合并配置
 static char *ngx_http_cdn_node_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child)
 {
-    ngx_http_cdn_node_header_conf_t *prev = parent;
-    ngx_http_cdn_node_header_conf_t *conf = child;
+    ngx_http_cdn_node_header_array_conf_t *prev = parent;
+    ngx_http_cdn_node_header_array_conf_t *conf = child;
+    ngx_http_cdn_node_header_entry_conf_t *header;
+    ngx_uint_t i;
 
-    ngx_conf_merge_str_value(conf->header_name, prev->header_name, "");
-    ngx_conf_merge_str_value(conf->header_value, prev->header_value, "");
+    if (conf->headers == NULL) {
+        conf->headers = prev->headers;
+    } else if (prev->headers != NULL) {
+        header = prev->headers->elts;
+        for (i = 0; i < prev->headers->nelts; i++) {
+            ngx_http_cdn_node_header_entry_conf_t *new_header;
+            new_header = ngx_array_push(conf->headers);
+            if (new_header == NULL) {
+                return NGX_CONF_ERROR;
+            }
+            *new_header = header[i];
+        }
+    }
 
     return NGX_CONF_OK;
 }
@@ -104,14 +124,19 @@ static char *ngx_http_cdn_node_merge_loc_conf(ngx_conf_t *cf, void *parent, void
 // 自定义配置处理函数
 static char *ngx_http_cdn_node_header(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 {
-    ngx_http_cdn_node_header_conf_t *cnhc = conf;
+    ngx_http_cdn_node_header_array_conf_t *cnhc = conf;
+    ngx_http_cdn_node_header_entry_conf_t *header;
     ngx_str_t *args;
 
     args = cf->args->elts;
 
+    header = ngx_array_push(cnhc->headers);
+    if (header == NULL) {
+        return NGX_CONF_ERROR;
+    }
 
-    cnhc->header_name = args[1];
-    cnhc->header_value = args[2];
+    header->header_name = args[1];
+    header->header_value = args[2];
 
     return NGX_CONF_OK;
 }

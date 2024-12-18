@@ -5,11 +5,16 @@
 #include <ngx_core.h>
 #include <ngx_http.h>
 
+// 单个header配置结构体
+typedef struct {
+    ngx_str_t header_name;
+    ngx_str_t header_value;
+} ngx_http_cdn_node_header_entry_conf_t;
+
 // 模块配置结构体
 typedef struct {
-    ngx_str_t header_name;  // 要添加的 header 名称
-    ngx_str_t header_value; // 要添加的 header 值
-} ngx_http_cdn_node_header_conf_t;
+    ngx_array_t *headers;
+} ngx_http_cdn_node_header_array_conf_t;
 
 // 函数声明
 static void *ngx_http_cdn_node_create_loc_conf(ngx_conf_t *cf);
