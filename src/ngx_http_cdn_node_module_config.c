@@ -49,12 +49,13 @@ ngx_module_t ngx_http_cdn_node_module = {
 // header过滤器处理函数
 static ngx_http_output_header_filter_pt ngx_http_next_header_filter;
 
-static ngx_int_t ngx_http_cdn_node_header_filter(ngx_http_request_t *r)
+    static ngx_int_t ngx_http_cdn_node_header_filter(ngx_http_request_t *r)
 {
     ngx_http_cdn_node_header_array_conf_t *conf;
     ngx_http_cdn_node_header_entry_conf_t *header;
     ngx_table_elt_t *h;
     ngx_uint_t i;
+    ngx_str_t value;
 
     conf = ngx_http_get_module_loc_conf(r, ngx_http_cdn_node_module);
 
@@ -63,8 +64,13 @@ static ngx_int_t ngx_http_cdn_node_header_filter(ngx_http_request_t *r)
     }
 
     header = conf->headers->elts;
+
     for (i = 0; i < conf->headers->nelts; i++) {
-        if (header[i].header_name.len > 0 && header[i].header_value.len > 0) {
+        if (ngx_http_complex_value(r, &header[i].header_value, &value) != NGX_OK) {
+            return NGX_ERROR;
+        }
+
+        if (header[i].header_name.len > 0 && value.len > 0) {
             h = ngx_list_push(&r->headers_out.headers);
             if (h == NULL) {
                 return NGX_ERROR;
@@ -72,7 +78,7 @@ static ngx_int_t ngx_http_cdn_node_header_filter(ngx_http_request_t *r)
 
             h->hash = 1;
             h->key = header[i].header_name;
-            h->value = header[i].header_value;
+            h->value = value;
         }
     }
 
@@ -127,6 +133,7 @@ static char *ngx_http_cdn_node_header(ngx_conf_t *cf, ngx_command_t *cmd, void *
     ngx_http_cdn_node_header_array_conf_t *cnhc = conf;
     ngx_http_cdn_node_header_entry_conf_t *header;
     ngx_str_t *args;
+    ngx_http_compile_complex_value_t ccv;
 
     args = cf->args->elts;
 
@@ -136,7 +143,16 @@ static char *ngx_http_cdn_node_header(ngx_conf_t *cf, ngx_command_t *cmd, void *
     }
 
     header->header_name = args[1];
-    header->header_value = args[2];
+
+    ngx_memzero(&ccv, sizeof(ngx_http_compile_complex_value_t));
+
+    ccv.cf = cf;
+    ccv.value = &args[2];
+    ccv.complex_value = &header->header_value;
+
+    if (ngx_http_compile_complex_value(&ccv) != NGX_OK) {
+        return NGX_CONF_ERROR;
+    }
 
     return NGX_CONF_OK;
 }

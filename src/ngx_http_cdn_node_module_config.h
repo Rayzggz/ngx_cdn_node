@@ -8,7 +8,7 @@
 // 单个header配置结构体
 typedef struct {
     ngx_str_t header_name;
-    ngx_str_t header_value;
+    ngx_http_complex_value_t  header_value;
 } ngx_http_cdn_node_header_entry_conf_t;
 
 // 模块配置结构体
