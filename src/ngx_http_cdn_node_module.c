@@ -7,7 +7,7 @@
 static ngx_command_t ngx_http_cdn_node_commands[] = {
         {
                 ngx_string("cdn_node_header"),
-                NGX_HTTP_MAIN_CONF|NGX_CONF_TAKE2,
+                NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE2,
                 ngx_http_cdn_node_header_config,
                 NGX_HTTP_LOC_CONF_OFFSET,
                 0,
@@ -15,7 +15,7 @@ static ngx_command_t ngx_http_cdn_node_commands[] = {
         },
         {
                 ngx_string("cdn_node_colo"),
-                NGX_HTTP_MAIN_CONF|NGX_CONF_TAKE1,
+                NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
                 ngx_conf_set_str_slot,
                 NGX_HTTP_LOC_CONF_OFFSET,
                 offsetof(ngx_http_cdn_node_conf_t, colo),
@@ -23,7 +23,7 @@ static ngx_command_t ngx_http_cdn_node_commands[] = {
         },
         {
                 ngx_string("cdn_node_sliver"),
-                NGX_HTTP_MAIN_CONF|NGX_CONF_TAKE1,
+                NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
                 ngx_conf_set_str_slot,
                 NGX_HTTP_LOC_CONF_OFFSET,
                 offsetof(ngx_http_cdn_node_conf_t, sliver),
@@ -126,21 +126,36 @@ static ngx_int_t ngx_http_cdn_node_trace_handler(ngx_http_request_t *r) {
     struct timespec ts;
     char buffer[1024];
     int len;
+    ngx_int_t rc;
     ngx_str_t scheme;
+    ngx_str_t ua;
+
+    if (!(r->method & (NGX_HTTP_GET|NGX_HTTP_HEAD))) {
+        return NGX_HTTP_NOT_ALLOWED;
+    }
+
+    rc = ngx_http_discard_request_body(r);
+    if (rc != NGX_OK) {
+        return rc;
+    }
 
     config = ngx_http_get_module_loc_conf(r, ngx_http_cdn_node_module);
 
     clock_gettime(CLOCK_REALTIME, &ts);
 
-
-
+    ngx_str_set(&scheme, "http");
 #if (NGX_HTTP_SSL)
     if (r->connection->ssl) {
         ngx_str_set(&scheme, "https");
-    } else {
-        ngx_str_set(&scheme, "http");
     }
 #endif
+
+    // 客户端可能不发送User-Agent
+    if (r->headers_in.user_agent) {
+        ua = r->headers_in.user_agent->value;
+    } else {
+        ngx_str_set(&ua, "");
+    }
 
     len = snprintf(buffer, sizeof(buffer),
                    "h=%.*s\n"
@@ -156,7 +171,7 @@ static ngx_int_t ngx_http_cdn_node_trace_handler(ngx_http_request_t *r) {
                    (int)r->connection->addr_text.len, r->connection->addr_text.data,
                    ts.tv_sec, ts.tv_nsec / 10000000,
                    (int)scheme.len, scheme.data,
-                   (int)r->headers_in.user_agent->value.len, r->headers_in.user_agent->value.data,
+                   (int)ua.len, ua.data,
                    (int)config->colo.len, config->colo.data,
                    (int)config->sliver.len, config->sliver.data,
                    (int)r->http_protocol.len, r->http_protocol.data,
@@ -167,6 +182,15 @@ static ngx_int_t ngx_http_cdn_node_trace_handler(ngx_http_request_t *r) {
             "off"
 #endif
     );
+
+    if (len < 0) {
+        return NGX_HTTP_INTERNAL_SERVER_ERROR;
+    }
+
+    // snprintf返回未截断时的长度, 超长Host/UA时需要截断到缓冲区大小
+    if (len >= (int) sizeof(buffer)) {
+        len = sizeof(buffer) - 1;
+    }
 
     b = ngx_create_temp_buf(r->pool, len);
     if (b == NULL) {
@@ -185,7 +209,11 @@ static ngx_int_t ngx_http_cdn_node_trace_handler(ngx_http_request_t *r) {
     r->headers_out.content_type.len = sizeof("text/plain") - 1;
     r->headers_out.content_type.data = (u_char *) "text/plain";
 
-    ngx_http_send_header(r);
+    rc = ngx_http_send_header(r);
+    if (rc == NGX_ERROR || rc > NGX_OK || r->header_only) {
+        return rc;
+    }
+
     return ngx_http_output_filter(r, &out);
 }
 
@@ -220,6 +248,23 @@ static ngx_int_t ngx_http_cdn_node_handler(ngx_http_request_t *r) {
         h->hash = 1;
         h->key = header[i].header_name;
         h->value = value;
+        h->next = NULL;
+    }
+
+    return NGX_DECLINED;
+}
+
+// /cdn-cgi/trace handler, 挂在PRECONTENT阶段, 在access阶段之后执行
+static ngx_int_t ngx_http_cdn_node_trace_phase_handler(ngx_http_request_t *r) {
+    ngx_http_cdn_node_conf_t *config;
+
+    if (r->main->internal) {
+        return NGX_DECLINED;
+    }
+
+    config = ngx_http_get_module_loc_conf(r, ngx_http_cdn_node_module);
+    if (config->headers->nelts == 0) {
+        return NGX_DECLINED;
     }
 
     // 检查是否是/cdn-cgi/trace请求
@@ -244,6 +289,13 @@ static ngx_int_t ngx_http_cdn_node_init(ngx_conf_t *cf) {
     }
 
     *h = ngx_http_cdn_node_handler;
+
+    h = ngx_array_push(&cmcf->phases[NGX_HTTP_PRECONTENT_PHASE].handlers);
+    if (h == NULL) {
+        return NGX_ERROR;
+    }
+
+    *h = ngx_http_cdn_node_trace_phase_handler;
 
     return NGX_OK;
 }
