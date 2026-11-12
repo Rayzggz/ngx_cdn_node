@@ -120,6 +120,7 @@ static ngx_str_t  ngx_http_cdn_node_reserved_headers[] = {
     ngx_string("Connection"),
     ngx_string("Keep-Alive"),
     ngx_string("Last-Modified"),
+    ngx_string("Location"),
     ngx_null_string
 };
 
