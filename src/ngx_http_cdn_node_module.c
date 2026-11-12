@@ -12,7 +12,7 @@
 
 /* NGX_HTTP_PRECONTENT_PHASE 在 nginx 1.13.4 中引入 */
 #if !defined(nginx_version) || nginx_version < 1013004
-#error "ngx_http_cdn_node_module requires nginx 1.13.4 or later (NGX_HTTP_PRECONTENT_PHASE)"
+#error "ngx_http_cdn_node_module requires nginx 1.13.4 or later"
 #endif
 
 
@@ -169,7 +169,11 @@ ngx_http_cdn_node_add_header(ngx_http_request_t *r, ngx_str_t *key,
     h->hash = 1;
     h->key = *key;
     h->value = *value;
+
+    /* ngx_table_elt_t.next 在 nginx 1.23.0 中引入 */
+#if (nginx_version >= 1023000)
     h->next = NULL;
+#endif
 
     return NGX_OK;
 }
@@ -396,7 +400,10 @@ ngx_http_cdn_node_header_filter(ngx_http_request_t *r)
         h->hash = 1;
         h->key = header[i].header_name;
         h->value = value;
+
+#if (nginx_version >= 1023000)
         h->next = NULL;
+#endif
     }
 
     return ngx_http_next_header_filter(r);
