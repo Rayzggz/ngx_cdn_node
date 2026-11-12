@@ -295,6 +295,7 @@ static ngx_int_t ngx_http_cdn_node_trace_handler(ngx_http_request_t *r) {
     r->headers_out.content_length_n = len;
     r->headers_out.content_type.len = sizeof("text/plain") - 1;
     r->headers_out.content_type.data = (u_char *) "text/plain";
+    r->headers_out.content_type_len = r->headers_out.content_type.len;
 
     // trace回显客户端IP/UA/Host:
     // no-store防止中间缓存把某个客户端的结果返回给其他人,
