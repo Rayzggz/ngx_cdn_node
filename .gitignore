@@ -1,0 +1,28 @@
+# IDE
+.idea/
+.vscode/
+*.swp
+*~
+
+# CLion / CMake
+cmake-build-*/
+CMakeFiles/
+CMakeCache.txt
+compile_commands.json
+
+# Build artifacts
+build/
+objs/
+*.o
+*.so
+*.a
+*.dll
+*.obj
+*.exe
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Test::Nginx
+t/servroot*/
