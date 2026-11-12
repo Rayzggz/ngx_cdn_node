@@ -190,7 +190,7 @@ ngx_http_cdn_node_trace_handler(ngx_http_request_t *r)
     ngx_str_t                  scheme, ua;
     const char                *tls;
     ngx_chain_t                out;
-    struct timespec            ts;
+    ngx_time_t                *tp;
     ngx_http_cdn_node_conf_t  *cncf;
 
     if (!(r->method & (NGX_HTTP_GET|NGX_HTTP_HEAD))) {
@@ -204,7 +204,8 @@ ngx_http_cdn_node_trace_handler(ngx_http_request_t *r)
 
     cncf = ngx_http_get_module_main_conf(r, ngx_http_cdn_node_module);
 
-    clock_gettime(CLOCK_REALTIME, &ts);
+    /* 使用 nginx 缓存时间, 避免每个请求一次系统调用 */
+    tp = ngx_timeofday();
 
     ngx_str_set(&scheme, "http");
 #if (NGX_HTTP_SSL)
@@ -265,7 +266,7 @@ ngx_http_cdn_node_trace_handler(ngx_http_request_t *r)
                            "tls=%s\n",
                            &r->headers_in.server,
                            &r->connection->addr_text,
-                           (time_t) ts.tv_sec, (long) (ts.tv_nsec / 10000000),
+                           tp->sec, (long) (tp->msec / 10),
                            &scheme,
                            &ua,
                            &cncf->colo,
