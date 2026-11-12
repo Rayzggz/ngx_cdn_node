@@ -136,6 +136,12 @@ static ngx_str_t  ngx_http_cdn_node_content_type_options =
     ngx_string("X-Content-Type-Options");
 static ngx_str_t  ngx_http_cdn_node_nosniff = ngx_string("nosniff");
 
+/*
+ * trace 响应的 ctx 标记, 只用其地址作为非 NULL 指针, 无需按请求分配.
+ * header filter 据此跳过与 trace 自带 header 同名的配置项, 避免重复
+ */
+static ngx_uint_t  ngx_http_cdn_node_trace_marker;
+
 
 /* 判断是否为 RFC 9110 中的 tchar */
 
@@ -302,6 +308,9 @@ ngx_http_cdn_node_trace_handler(ngx_http_request_t *r)
         return NGX_HTTP_INTERNAL_SERVER_ERROR;
     }
 
+    ngx_http_set_ctx(r, &ngx_http_cdn_node_trace_marker,
+                     ngx_http_cdn_node_module);
+
     /*
      * 本模块的响应即最终结果: 自行 finalize 并返回 NGX_DONE,
      * 阻止 phase 引擎继续进入 CONTENT 阶段 (proxy_pass/static 等)
@@ -358,7 +367,7 @@ static ngx_int_t
 ngx_http_cdn_node_header_filter(ngx_http_request_t *r)
 {
     ngx_str_t                               value;
-    ngx_uint_t                              i;
+    ngx_uint_t                              i, trace;
     ngx_table_elt_t                        *h;
     ngx_http_cdn_node_conf_t               *cncf;
     ngx_http_cdn_node_header_entry_conf_t  *header;
@@ -375,8 +384,27 @@ ngx_http_cdn_node_header_filter(ngx_http_request_t *r)
     }
 
     header = cncf->headers->elts;
+    trace = ngx_http_get_module_ctx(r, ngx_http_cdn_node_module) != NULL;
 
     for (i = 0; i < cncf->headers->nelts; i++) {
+
+        /* trace 已自行设置 Cache-Control/X-Content-Type-Options, 不重复输出 */
+        if (trace
+            && ((header[i].header_name.len
+                     == ngx_http_cdn_node_cache_control.len
+                 && ngx_strncasecmp(header[i].header_name.data,
+                                    ngx_http_cdn_node_cache_control.data,
+                                    ngx_http_cdn_node_cache_control.len)
+                    == 0)
+                || (header[i].header_name.len
+                        == ngx_http_cdn_node_content_type_options.len
+                    && ngx_strncasecmp(header[i].header_name.data,
+                                ngx_http_cdn_node_content_type_options.data,
+                                ngx_http_cdn_node_content_type_options.len)
+                       == 0)))
+        {
+            continue;
+        }
 
         /* header filter 中返回错误会直接断开连接, 求值失败时只记日志并跳过 */
         if (ngx_http_complex_value(r, &header[i].header_value, &value)
