@@ -23,3 +23,6 @@ objs/
 # OS
 .DS_Store
 Thumbs.db
+
+# Test::Nginx
+t/servroot*/
