@@ -2,8 +2,15 @@
 #define NGX_HTTP_CDN_NODE_MODULE_CONFIG_H
 
 
+#include <ngx_config.h>
 #include <ngx_core.h>
 #include <ngx_http.h>
+#include <nginx.h>
+
+// NGX_HTTP_PRECONTENT_PHASE 在 nginx 1.13.4 中引入
+#if !defined(nginx_version) || nginx_version < 1013004
+#error "ngx_http_cdn_node_module requires nginx 1.13.4 or later (NGX_HTTP_PRECONTENT_PHASE)"
+#endif
 
 // 单个header配置结构体
 typedef struct {
