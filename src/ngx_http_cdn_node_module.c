@@ -28,6 +28,7 @@ typedef struct {
     ngx_array_t               *headers;
     ngx_str_t                  colo;
     ngx_str_t                  sliver;
+    ngx_flag_t                 trace;
 } ngx_http_cdn_node_conf_t;
 
 
@@ -329,20 +330,15 @@ ngx_http_cdn_node_trace_handler(ngx_http_request_t *r)
 }
 
 
-/* /cdn-cgi/trace handler, 挂在 PRECONTENT 阶段, 在 access 阶段之后执行 */
+/*
+ * /cdn-cgi/trace handler, 挂在 PRECONTENT 阶段, 在 access 阶段之后执行.
+ * 仅在启用 trace 时注册 (见 ngx_http_cdn_node_init)
+ */
 
 static ngx_int_t
 ngx_http_cdn_node_trace_phase_handler(ngx_http_request_t *r)
 {
-    ngx_http_cdn_node_conf_t  *cncf;
-
     if (r->internal) {
-        return NGX_DECLINED;
-    }
-
-    cncf = ngx_http_get_module_main_conf(r, ngx_http_cdn_node_module);
-
-    if (cncf->headers->nelts == 0) {
         return NGX_DECLINED;
     }
 
@@ -459,6 +455,12 @@ ngx_http_cdn_node_init_main_conf(ngx_conf_t *cf, void *conf)
 {
     ngx_http_cdn_node_conf_t *cncf = conf;
 
+    /*
+     * cdn_node_colo 与 cdn_node_sliver 都配置了 (包括空串) 才启用 trace;
+     * 必须在下面填默认值之前判断, 否则无法区分未配置与空串
+     */
+    cncf->trace = (cncf->colo.data != NULL && cncf->sliver.data != NULL);
+
     if (cncf->colo.data == NULL) {
         ngx_str_set(&cncf->colo, "");
     }
@@ -540,16 +542,22 @@ static ngx_int_t
 ngx_http_cdn_node_init(ngx_conf_t *cf)
 {
     ngx_http_handler_pt        *h;
+    ngx_http_cdn_node_conf_t   *cncf;
     ngx_http_core_main_conf_t  *cmcf;
 
-    cmcf = ngx_http_conf_get_module_main_conf(cf, ngx_http_core_module);
+    /* postconfiguration 在 init_main_conf 之后执行, 此时 trace 已确定 */
+    cncf = ngx_http_conf_get_module_main_conf(cf, ngx_http_cdn_node_module);
 
-    h = ngx_array_push(&cmcf->phases[NGX_HTTP_PRECONTENT_PHASE].handlers);
-    if (h == NULL) {
-        return NGX_ERROR;
+    if (cncf->trace) {
+        cmcf = ngx_http_conf_get_module_main_conf(cf, ngx_http_core_module);
+
+        h = ngx_array_push(&cmcf->phases[NGX_HTTP_PRECONTENT_PHASE].handlers);
+        if (h == NULL) {
+            return NGX_ERROR;
+        }
+
+        *h = ngx_http_cdn_node_trace_phase_handler;
     }
-
-    *h = ngx_http_cdn_node_trace_phase_handler;
 
     ngx_http_next_header_filter = ngx_http_top_header_filter;
     ngx_http_top_header_filter = ngx_http_cdn_node_header_filter;
