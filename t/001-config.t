@@ -7,6 +7,21 @@ use Test::Nginx::Socket 'no_plan';
 repeat_each(1);
 
 no_long_string();
+
+# 没有 --- config 的块 Test::Nginx 不会重启 nginx (http_config 被忽略,
+# must_die 也就不会触发), 所以给每个块补一个默认 config
+add_block_preprocessor(sub {
+    my $block = shift;
+
+    if (!defined $block->config) {
+        $block->set_value("config", <<'_EOC_');
+    location = /t {
+        return 200 "ok\n";
+    }
+_EOC_
+    }
+});
+
 run_tests();
 
 __DATA__
@@ -137,8 +152,8 @@ invalid header name
     }
 --- request
 GET /t
---- response_headers
-X!#$%&'*+-.^_`|~1: sym
+--- raw_response_headers_like eval
+"\r\n" . quotemeta(q{X!#$%&'*+-.^_`|~1}) . ": sym\r\n"
 --- response_body
 ok
 --- no_error_log

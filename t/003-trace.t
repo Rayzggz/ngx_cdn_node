@@ -8,6 +8,9 @@ repeat_each(2);
 
 no_long_string();
 
+# 各用例自带 location /, 不要 Test::Nginx 再注入一个 (否则 duplicate location)
+no_root_location();
+
 # 静态文件 html/cdn-cgi/trace 作为 trace 未接管时的回退内容
 add_block_preprocessor(sub {
     my $block = shift;
@@ -385,7 +388,7 @@ GET /cdn-cgi/trace
 Cache-Control: no-store
 X-Content-Type-Options: nosniff
 X-Node: node-1
---- raw_response_headers_unlike
+--- raw_response_headers_unlike chomp
 (?si)(?:Cache-Control:.*Cache-Control:|X-Content-Type-Options:.*X-Content-Type-Options:|public)
 --- no_error_log
 [error]

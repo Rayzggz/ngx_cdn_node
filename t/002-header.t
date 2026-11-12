@@ -40,7 +40,7 @@ ok
     }
 --- request
 GET /t
---- raw_response_headers_like
+--- raw_response_headers_like chomp
 x-first: 1\r\nX-Second: 2\r\nX-THIRD: 3\r\n
 --- no_error_log
 [error]
@@ -92,9 +92,9 @@ open()
 --- http_config
     cdn_node_header X-Node node-1;
 --- config
+    # 不能用 return: 它在 rewrite 阶段执行, 早于 access 阶段的 deny
     location = /t {
         deny all;
-        return 200 "ok\n";
     }
 --- request
 GET /t
@@ -209,11 +209,11 @@ X-Cond: enabled
 [<!--# include virtual="/sub" -->]
 --- request
 GET /page.html
---- response_body chomp
+--- response_body
 [sub]
 --- response_headers
 X-Node: node-1
---- raw_response_headers_unlike
+--- raw_response_headers_unlike chomp
 (?s)X-Node:.*X-Node:
 --- no_error_log
 [error]
@@ -290,9 +290,9 @@ GET /t
 --- error_code: 202
 --- response_body
 backend
---- raw_response_headers_like
+--- raw_response_headers_like chomp
 (?s)X-Node: node-1\r\n.*X-Upstream-Status: 202\r\n
---- raw_response_headers_unlike
+--- raw_response_headers_unlike chomp
 (?s)X-Node:.*X-Node:
 --- no_error_log
 [error]

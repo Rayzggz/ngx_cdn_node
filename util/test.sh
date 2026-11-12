@@ -13,12 +13,14 @@
 #   NGINX_VERSION   nginx 版本, 默认 1.26.2
 #   DYNAMIC=1       以动态模块方式编译 (--add-dynamic-module)
 #   REBUILD=1       强制重新 configure + 编译
+#   BUILD_DIR       编译目录, 默认 <repo>/build
+#   BUILD_ONLY=1    只编译, 不运行测试
 
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 NGINX_VERSION="${NGINX_VERSION:-1.26.2}"
-BUILD_DIR="$ROOT/build"
+BUILD_DIR="${BUILD_DIR:-$ROOT/build}"
 SRC_DIR="$BUILD_DIR/nginx-$NGINX_VERSION"
 PREFIX="$BUILD_DIR/nginx-$NGINX_VERSION-install${DYNAMIC:+-dynamic}"
 NGINX_BIN="$PREFIX/sbin/nginx"
@@ -57,6 +59,8 @@ then
 fi
 
 "$NGINX_BIN" -V 2>&1 | head -1
+
+[ "${BUILD_ONLY:-0}" = 1 ] && exit 0
 
 export PATH="$PREFIX/sbin:$PATH"
 
