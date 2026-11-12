@@ -209,12 +209,16 @@ static ngx_int_t ngx_http_cdn_node_trace_handler(ngx_http_request_t *r) {
     r->headers_out.content_type.len = sizeof("text/plain") - 1;
     r->headers_out.content_type.data = (u_char *) "text/plain";
 
+    // 本模块的响应即最终结果: 自行finalize并返回NGX_DONE,
+    // 阻止phase引擎继续进入CONTENT阶段(proxy_pass/static等)
     rc = ngx_http_send_header(r);
     if (rc == NGX_ERROR || rc > NGX_OK || r->header_only) {
-        return rc;
+        ngx_http_finalize_request(r, rc);
+        return NGX_DONE;
     }
 
-    return ngx_http_output_filter(r, &out);
+    ngx_http_finalize_request(r, ngx_http_output_filter(r, &out));
+    return NGX_DONE;
 }
 
 // 请求处理handler
