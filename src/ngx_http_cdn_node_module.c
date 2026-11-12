@@ -7,25 +7,25 @@
 static ngx_command_t ngx_http_cdn_node_commands[] = {
         {
                 ngx_string("cdn_node_header"),
-                NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE2,
+                NGX_HTTP_MAIN_CONF|NGX_CONF_TAKE2,
                 ngx_http_cdn_node_header_config,
-                NGX_HTTP_LOC_CONF_OFFSET,
+                NGX_HTTP_MAIN_CONF_OFFSET,
                 0,
                 NULL
         },
         {
                 ngx_string("cdn_node_colo"),
-                NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
+                NGX_HTTP_MAIN_CONF|NGX_CONF_TAKE1,
                 ngx_conf_set_str_slot,
-                NGX_HTTP_LOC_CONF_OFFSET,
+                NGX_HTTP_MAIN_CONF_OFFSET,
                 offsetof(ngx_http_cdn_node_conf_t, colo),
                 NULL
         },
         {
                 ngx_string("cdn_node_sliver"),
-                NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
+                NGX_HTTP_MAIN_CONF|NGX_CONF_TAKE1,
                 ngx_conf_set_str_slot,
-                NGX_HTTP_LOC_CONF_OFFSET,
+                NGX_HTTP_MAIN_CONF_OFFSET,
                 offsetof(ngx_http_cdn_node_conf_t, sliver),
                 NULL
         },
@@ -36,12 +36,12 @@ static ngx_command_t ngx_http_cdn_node_commands[] = {
 static ngx_http_module_t ngx_http_cdn_node_module_ctx = {
         NULL,                               /* preconfiguration */
         ngx_http_cdn_node_init,            /* postconfiguration */
-        NULL,                              /* create main configuration */
-        NULL,                              /* init main configuration */
+        ngx_http_cdn_node_create_main_conf, /* create main configuration */
+        ngx_http_cdn_node_init_main_conf,   /* init main configuration */
         NULL,                              /* create server configuration */
         NULL,                              /* merge server configuration */
-        ngx_http_cdn_node_create_loc_conf, /* create location configuration */
-        ngx_http_cdn_node_merge_loc_conf   /* merge location configuration */
+        NULL,                              /* create location configuration */
+        NULL                               /* merge location configuration */
 };
 
 // 模块定义
@@ -60,8 +60,10 @@ ngx_module_t ngx_http_cdn_node_module = {
         NGX_MODULE_V1_PADDING
 };
 
+static ngx_http_output_header_filter_pt ngx_http_next_header_filter;
+
 // 创建配置
-static void *ngx_http_cdn_node_create_loc_conf(ngx_conf_t *cf) {
+static void *ngx_http_cdn_node_create_main_conf(ngx_conf_t *cf) {
     ngx_http_cdn_node_conf_t *conf;
 
     conf = ngx_pcalloc(cf->pool, sizeof(ngx_http_cdn_node_conf_t));
@@ -77,17 +79,17 @@ static void *ngx_http_cdn_node_create_loc_conf(ngx_conf_t *cf) {
     return conf;
 }
 
-// 合并配置
-static char *ngx_http_cdn_node_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child) {
-    ngx_http_cdn_node_conf_t *prev = parent;
-    ngx_http_cdn_node_conf_t *conf = child;
+// 配置解析完成后, 为未设置的值填默认值
+static char *ngx_http_cdn_node_init_main_conf(ngx_conf_t *cf, void *conf) {
+    ngx_http_cdn_node_conf_t *config = conf;
 
-    if (conf->headers->nelts == 0) {
-        conf->headers = prev->headers;
+    if (config->colo.data == NULL) {
+        ngx_str_set(&config->colo, "");
     }
 
-    ngx_conf_merge_str_value(conf->colo, prev->colo, "");
-    ngx_conf_merge_str_value(conf->sliver, prev->sliver, "");
+    if (config->sliver.data == NULL) {
+        ngx_str_set(&config->sliver, "");
+    }
 
     return NGX_CONF_OK;
 }
@@ -139,7 +141,7 @@ static ngx_int_t ngx_http_cdn_node_trace_handler(ngx_http_request_t *r) {
         return rc;
     }
 
-    config = ngx_http_get_module_loc_conf(r, ngx_http_cdn_node_module);
+    config = ngx_http_get_module_main_conf(r, ngx_http_cdn_node_module);
 
     clock_gettime(CLOCK_REALTIME, &ts);
 
@@ -221,27 +223,33 @@ static ngx_int_t ngx_http_cdn_node_trace_handler(ngx_http_request_t *r) {
     return NGX_DONE;
 }
 
-// 请求处理handler
-static ngx_int_t ngx_http_cdn_node_handler(ngx_http_request_t *r) {
+// 响应头过滤器: 在发送响应头时追加配置的header
+// 所有响应(包括return/错误页/内部跳转后的响应)都会经过这里, 且此时可取到$status/$upstream_*等响应阶段变量
+static ngx_int_t ngx_http_cdn_node_header_filter(ngx_http_request_t *r) {
     ngx_http_cdn_node_conf_t *config;
     ngx_http_cdn_node_header_entry_conf_t *header;
     ngx_uint_t i;
     ngx_str_t value;
     ngx_table_elt_t *h;
 
-    if (r->main->internal) {
-        return NGX_DECLINED;
+    // 子请求的响应头不会发给客户端, 跳过
+    if (r != r->main) {
+        return ngx_http_next_header_filter(r);
     }
 
-    config = ngx_http_get_module_loc_conf(r, ngx_http_cdn_node_module);
-    if (config->headers->nelts == 0) {
-        return NGX_DECLINED;
+    config = ngx_http_get_module_main_conf(r, ngx_http_cdn_node_module);
+    if (config == NULL || config->headers->nelts == 0) {
+        return ngx_http_next_header_filter(r);
     }
 
     header = config->headers->elts;
     for (i = 0; i < config->headers->nelts; i++) {
+        // header filter中返回错误会直接断开连接, 求值失败时只记日志并跳过该header
         if (ngx_http_complex_value(r, &header[i].header_value, &value) != NGX_OK) {
-            return NGX_ERROR;
+            ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
+                          "cdn_node: failed to evaluate header \"%V\"",
+                          &header[i].header_name);
+            continue;
         }
 
         h = ngx_list_push(&r->headers_out.headers);
@@ -255,7 +263,7 @@ static ngx_int_t ngx_http_cdn_node_handler(ngx_http_request_t *r) {
         h->next = NULL;
     }
 
-    return NGX_DECLINED;
+    return ngx_http_next_header_filter(r);
 }
 
 // /cdn-cgi/trace handler, 挂在PRECONTENT阶段, 在access阶段之后执行
@@ -266,7 +274,7 @@ static ngx_int_t ngx_http_cdn_node_trace_phase_handler(ngx_http_request_t *r) {
         return NGX_DECLINED;
     }
 
-    config = ngx_http_get_module_loc_conf(r, ngx_http_cdn_node_module);
+    config = ngx_http_get_module_main_conf(r, ngx_http_cdn_node_module);
     if (config->headers->nelts == 0) {
         return NGX_DECLINED;
     }
@@ -287,19 +295,15 @@ static ngx_int_t ngx_http_cdn_node_init(ngx_conf_t *cf) {
 
     cmcf = ngx_http_conf_get_module_main_conf(cf, ngx_http_core_module);
 
-    h = ngx_array_push(&cmcf->phases[NGX_HTTP_REWRITE_PHASE].handlers);
-    if (h == NULL) {
-        return NGX_ERROR;
-    }
-
-    *h = ngx_http_cdn_node_handler;
-
     h = ngx_array_push(&cmcf->phases[NGX_HTTP_PRECONTENT_PHASE].handlers);
     if (h == NULL) {
         return NGX_ERROR;
     }
 
     *h = ngx_http_cdn_node_trace_phase_handler;
+
+    ngx_http_next_header_filter = ngx_http_top_header_filter;
+    ngx_http_top_header_filter = ngx_http_cdn_node_header_filter;
 
     return NGX_OK;
 }

@@ -11,7 +11,7 @@ typedef struct {
     ngx_http_complex_value_t  header_value;
 } ngx_http_cdn_node_header_entry_conf_t;
 
-// 模块配置结构体
+// 模块配置结构体 (仅http级)
 typedef struct {
     ngx_array_t *headers;
     ngx_str_t colo;
@@ -21,10 +21,10 @@ typedef struct {
 
 
 // 函数声明
-static void *ngx_http_cdn_node_create_loc_conf(ngx_conf_t *cf);
-static char *ngx_http_cdn_node_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child);
+static void *ngx_http_cdn_node_create_main_conf(ngx_conf_t *cf);
+static char *ngx_http_cdn_node_init_main_conf(ngx_conf_t *cf, void *conf);
 static ngx_int_t ngx_http_cdn_node_init(ngx_conf_t *cf);
-static ngx_int_t ngx_http_cdn_node_handler(ngx_http_request_t *r);
+static ngx_int_t ngx_http_cdn_node_header_filter(ngx_http_request_t *r);
 static ngx_int_t ngx_http_cdn_node_trace_phase_handler(ngx_http_request_t *r);
 static char *ngx_http_cdn_node_header_config(ngx_conf_t *cf, ngx_command_t *cmd, void *conf);
 
