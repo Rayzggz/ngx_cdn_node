@@ -336,7 +336,7 @@ ngx_http_cdn_node_trace_phase_handler(ngx_http_request_t *r)
 {
     ngx_http_cdn_node_conf_t  *cncf;
 
-    if (r->main->internal) {
+    if (r->internal) {
         return NGX_DECLINED;
     }
 
