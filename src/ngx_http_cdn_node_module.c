@@ -368,7 +368,6 @@ ngx_http_cdn_node_header_filter(ngx_http_request_t *r)
 {
     ngx_str_t                               value;
     ngx_uint_t                              i, trace;
-    ngx_table_elt_t                        *h;
     ngx_http_cdn_node_conf_t               *cncf;
     ngx_http_cdn_node_header_entry_conf_t  *header;
 
@@ -421,18 +420,11 @@ ngx_http_cdn_node_header_filter(ngx_http_request_t *r)
             continue;
         }
 
-        h = ngx_list_push(&r->headers_out.headers);
-        if (h == NULL) {
+        if (ngx_http_cdn_node_add_header(r, &header[i].header_name, &value)
+            != NGX_OK)
+        {
             return NGX_ERROR;
         }
-
-        h->hash = 1;
-        h->key = header[i].header_name;
-        h->value = value;
-
-#if (nginx_version >= 1023000)
-        h->next = NULL;
-#endif
     }
 
     return ngx_http_next_header_filter(r);
